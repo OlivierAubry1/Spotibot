@@ -2,11 +2,6 @@ import discord
 from discord.ext import commands
 import os
 from dotenv import load_dotenv
-import spotipy
-from spotipy.oauth2 import SpotifyClientCredentials
-import asyncio
-from yt_dlp import YoutubeDL
-import functools
 
 # Load environment variables from .env file
 load_dotenv()
