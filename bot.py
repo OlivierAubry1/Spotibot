@@ -15,9 +15,6 @@ DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 SPOTIPY_CLIENT_ID = os.getenv("SPOTIPY_CLIENT_ID")
 SPOTIPY_CLIENT_SECRET = os.getenv("SPOTIPY_CLIENT_SECRET")
 
-
-
-
 # --- Discord Bot Setup ---
 intents = discord.Intents.default()
 intents.message_content = True  # Enable message content intent
@@ -29,13 +26,6 @@ async def on_ready():
     print(f'Logged in as {bot.user} (ID: {bot.user.id})')
     print('------')
     await bot.load_extension("cogs.music")
-
-
-
-
-
-
-
 
 # Run the bot
 if __name__ == "__main__":

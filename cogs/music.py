@@ -130,6 +130,24 @@ class Music(commands.Cog):
             except Exception as e:
                 await ctx.send(f"Could not get Spotify track information: {e}")
                 return
+        elif "spotify.com/playlist/" in query:
+            try:
+                playlist_id = query.split('/')[-1].split('?')[0]
+                results = self.sp.playlist_tracks(playlist_id)
+                tracks = results['items']
+                while results['next']:
+                    results = self.sp.next(results)
+                    tracks.extend(results['items'])
+
+                if not tracks:
+                    await ctx.send("The Spotify playlist is empty or could not be accessed.")
+                    return
+
+                await self.add_tracks_to_queue(ctx, tracks)
+                return # Stop further execution for playlists
+            except Exception as e:
+                await ctx.send(f"Could not get Spotify playlist information: {e}")
+                return
         else:
             # Search Spotify for the track
             try:
@@ -176,6 +194,35 @@ class Music(commands.Cog):
             await self.play_next(ctx)
         else:
             await ctx.send(f"Added '{song_name}' to the queue. Position: {len(self.music_queue[guild_id])}")
+
+    async def add_tracks_to_queue(self, ctx, tracks):
+        """Helper function to process and queue multiple tracks."""
+        guild_id = ctx.guild.id
+        await ctx.send(f"Adding {len(tracks)} songs from the playlist to the queue...")
+
+        for item in tracks:
+            track = item.get('track')
+            if not track:
+                continue
+
+            song_name = f"{track['artists'][0]['name']} - {track['name']}"
+            
+            loop = asyncio.get_event_loop()
+            try:
+                yt_url = await loop.run_in_executor(None, lambda: self.get_youtube_url_from_spotify_track(song_name))
+                if yt_url:
+                    new_song_data = {
+                        'name': song_name,
+                        'url': yt_url,
+                        'guild_id': guild_id,
+                        'channel_id': ctx.channel.id
+                    }
+                    self.music_queue[guild_id].append(new_song_data)
+            except Exception:
+                await ctx.send(f"Skipping '{song_name}' as a YouTube link could not be found.")
+
+        if not self.is_playing.get(guild_id):
+            await self.play_next(ctx)
 
     @commands.command(name='queue', help='Displays the current song queue')
     async def queue(self, ctx):
