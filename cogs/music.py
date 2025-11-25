@@ -55,7 +55,7 @@ class Music(commands.Cog):
         if not self.music_queue.get(guild_id):
             self.is_playing[guild_id] = False
             self.current_song[guild_id] = None
-            if ctx.voice_client:
+            if ctx.voice_client and ctx.voice_client.is_connected():
                 await ctx.voice_client.disconnect()
             return
 
@@ -259,12 +259,18 @@ class Music(commands.Cog):
         if not ctx.voice_client:
             await ctx.send("I am not in a voice channel.")
             return
+
+        if guild_id in self.music_queue:
+            self.music_queue[guild_id].clear()
         
-        ctx.voice_client.stop() # Stop current playback
-        self.music_queue[guild_id].clear() # Clear the queue
         self.is_playing[guild_id] = False
         self.current_song[guild_id] = None
-        await ctx.voice_client.disconnect()
+
+        if ctx.voice_client.is_playing() or ctx.voice_client.is_paused():
+            ctx.voice_client.stop()
+        elif ctx.voice_client.is_connected():
+            await ctx.voice_client.disconnect()
+
         await ctx.send("Stopped playback and cleared the queue.")
 
     @commands.command(name='pause', help='Pauses the current song')
