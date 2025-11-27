@@ -151,8 +151,13 @@ class Music(commands.Cog):
         song = self.music_queue[guild_id].pop(0)
         self.current_song[guild_id] = song # Set the current playing song
 
+        control_view = MusicControlView()
+        pause_resume_button = discord.utils.get(control_view.children, custom_id="pause_resume")
+        if pause_resume_button:
+            pause_resume_button.label = "Pause"
+            pause_resume_button.emoji = "⏸️"
         
-        content = f"Now playing: {song['name']}"
+        # OLD: content = f"Now playing: {song['name']}"
         # OLD: await ctx.channel.send(content, view=control_view)
         
         embed = discord.Embed(
@@ -361,12 +366,13 @@ class Music(commands.Cog):
             await ctx.send("Playback paused.")
             
             message = self.now_playing_message.get(ctx.guild.id)
-            if message:
-                view = MusicControlView()
+            if message and message.view:
+                view = message.view
                 button = discord.utils.get(view.children, custom_id='pause_resume')
-                button.label = "Resume"
-                button.emoji = "▶️"
-                await message.edit(view=view)
+                if button:
+                    button.label = "Resume"
+                    button.emoji = "▶️"
+                    await message.edit(view=view)
         else:
             await ctx.send("No music is currently playing.")
             
@@ -378,12 +384,13 @@ class Music(commands.Cog):
             await ctx.send("Playback resumed.")
 
             message = self.now_playing_message.get(ctx.guild.id)
-            if message:
-                view = MusicControlView()
+            if message and message.view:
+                view = message.view
                 button = discord.utils.get(view.children, custom_id='pause_resume')
-                button.label = "Pause"
-                button.emoji = "⏸️"
-                await message.edit(view=view)
+                if button:
+                    button.label = "Pause"
+                    button.emoji = "⏸️"
+                    await message.edit(view=view)
         else:
             await ctx.send("No music is currently paused.")
 
