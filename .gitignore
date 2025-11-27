@@ -13,5 +13,5 @@ __pycache__/
 Thumbs.db
 
 # Cache files
-.cache/
 nohup.out
+.cache
