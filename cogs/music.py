@@ -8,6 +8,7 @@ from spotipy.oauth2 import SpotifyClientCredentials
 import os
 import re
 import validators
+import sys
 
 # YoutubeDL options for audio extraction
 YDL_OPTIONS = {
@@ -176,6 +177,14 @@ class Music(commands.Cog):
         
         await ctx.voice_client.disconnect()
         await ctx.send("Left the voice channel.")
+
+    @commands.command(name='refresh', help='Kills bot process to refresh memory and creates a new one')
+    async def refresh(self, ctx):
+            await ctx.send("Be right back! Refreshing...")
+            sys.exit()
+            return
+        
+        
 
     @commands.command(name='play', help='To play song')
     async def play(self, ctx, *, query: str = None):
