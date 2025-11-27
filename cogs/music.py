@@ -85,26 +85,6 @@ class Music(commands.Cog):
                     except Exception as e:
                         print(f"Error processing spotify track url: {e}") # Log error
                         return None, f"Could not get Spotify track information: {e}"
-                elif 'playlist' in query:
-                    try:
-                        playlist_id = query.split('/')[-1].split('?')[0]
-                        results = self.sp.playlist_tracks(playlist_id)
-                        tracks = results['items']
-                        while results['next']:
-                            results = self.sp.next(results)
-                            tracks.extend(results['items'])
-
-                        for item in tracks:
-                            track = item.get('track')
-                            if track:
-                                song_name = f"{track['artists'][0]['name']} - {track['name']}"
-                                yt_url = await loop.run_in_executor(None, lambda: self._search_youtube(song_name))
-                                if yt_url:
-                                    songs.append({'name': song_name, 'url': yt_url})
-                        message = f"Added {len(songs)} songs to the queue."
-                    except Exception as e:
-                        print(f"Error processing spotify playlist url: {e}")
-                        return None, f"Could not get Spotify playlist information: {e}"
             else: # Other URLs (assume YouTube)
                 try:
                     info = await loop.run_in_executor(None, lambda: self._get_info_from_youtube_url(query))
@@ -183,8 +163,51 @@ class Music(commands.Cog):
             await ctx.send("Be right back! Refreshing...")
             sys.exit()
             return
+
+    async def handle_playlist(self, ctx, query):
+        guild_id = ctx.guild.id
+        loop = asyncio.get_event_loop()
         
-        
+        try:
+            playlist_id = query.split('/')[-1].split('?')[0]
+            results = self.sp.playlist_tracks(playlist_id)
+            
+            if not results['items']:
+                 await ctx.send("Playlist is empty or could not be accessed.")
+                 return
+            
+            processed_count = 0
+            
+            def get_all_tracks(results):
+                r = results
+                while r:
+                    for item in r['items']:
+                        yield item
+                    r = self.sp.next(r) if r['next'] else None
+            
+            for item in get_all_tracks(results):
+                track = item.get('track')
+                if not track:
+                    continue
+
+                song_name = f"{track['artists'][0]['name']} - {track['name']}"
+                
+                yt_url = await loop.run_in_executor(None, lambda: self._search_youtube(song_name))
+                
+                if yt_url:
+                    song = {'name': song_name, 'url': yt_url, 'guild_id': guild_id, 'channel_id': ctx.channel.id}
+                    self.music_queue[guild_id].append(song)
+                    processed_count += 1
+                    
+                    if not self.is_playing.get(guild_id):
+                        self.is_playing[guild_id] = True
+                        await self.play_next(ctx)
+            
+            await ctx.send(f"Finished adding {processed_count} songs to the queue.")
+
+        except Exception as e:
+            print(f"Error processing spotify playlist url: {e}")
+            await ctx.send(f"Could not get Spotify playlist information: {e}")
 
     @commands.command(name='play', help='To play song')
     async def play(self, ctx, *, query: str = None):
@@ -211,6 +234,11 @@ class Music(commands.Cog):
                 await ctx.send(f"Could not join the voice channel: {e}")
                 return
 
+        if validators.url(query) and 'spotify.com' in query and 'playlist' in query:
+            await ctx.send("Processing playlist... this might take a moment.")
+            self.bot.loop.create_task(self.handle_playlist(ctx, query))
+            return
+
         await ctx.send("Searching...")
         
         songs, message = await self._get_song_info(query)
@@ -229,81 +257,6 @@ class Music(commands.Cog):
         if not self.is_playing.get(guild_id):
             self.is_playing[guild_id] = True
             await self.play_next(ctx)
-
-    @commands.command(name='queue', help='Displays the current song queue')
-    async def queue(self, ctx):
-        guild_id = ctx.guild.id
-        if not self.music_queue.get(guild_id) and not self.is_playing.get(guild_id):
-            await ctx.send("The queue is currently empty.")
-            return
-
-        queue_list = []
-        if self.is_playing.get(guild_id) and self.current_song.get(guild_id):
-            queue_list.append(f"Now Playing: {self.current_song[guild_id]['name']}")
-        
-        for i, song in enumerate(self.music_queue[guild_id]):
-            queue_list.append(f"{i+1}. {song['name']}")
-        
-        if queue_list:
-            await ctx.send("```\n" + "\n".join(queue_list) + "\n```")
-        else:
-            await ctx.send("The queue is empty.")
-
-    @commands.command(name='skip', help='Skips the current song')
-    async def skip(self, ctx):
-        guild_id = ctx.guild.id
-        if not ctx.voice_client or not ctx.voice_client.is_playing():
-            await ctx.send("No music is currently playing to skip.")
-            return
-        
-        ctx.voice_client.stop() # This will trigger the `after` callback and play the next song
-        await ctx.send("Skipped the current song.")
-
-    @commands.command(name='stop', help='Stops playback and clears the queue')
-    async def stop(self, ctx):
-        guild_id = ctx.guild.id
-        if not ctx.voice_client:
-            await ctx.send("I am not in a voice channel.")
-            return
-
-        if guild_id in self.music_queue:
-            self.music_queue[guild_id].clear()
-        
-        self.is_playing[guild_id] = False
-        self.current_song[guild_id] = None
-
-        if ctx.voice_client.is_playing() or ctx.voice_client.is_paused():
-            ctx.voice_client.stop()
-        elif ctx.voice_client.is_connected():
-            await ctx.voice_client.disconnect()
-
-        await ctx.send("Stopped playback and cleared the queue.")
-
-    @commands.command(name='pause', help='Pauses the current song')
-    async def pause(self, ctx):
-        if ctx.voice_client and ctx.voice_client.is_playing():
-            ctx.voice_client.pause()
-            await ctx.send("Playback paused.")
-        else:
-            await ctx.send("No music is currently playing.")
-            
-    @commands.command(name='resume', help='Resumes the paused song')
-    async def resume(self, ctx):
-        if ctx.voice_client and ctx.voice_client.is_paused():
-            ctx.voice_client.resume()
-            await ctx.send("Playback resumed.")
-        else:
-            await ctx.send("No music is currently paused.")
-
-    @commands.command(name='nowplaying', aliases=['np'], help='Shows information about the currently playing song')
-    async def nowplaying(self, ctx):
-        guild_id = ctx.guild.id
-        if self.current_song.get(guild_id) and ctx.voice_client and ctx.voice_client.is_playing():
-            await ctx.send(f"Now playing: {self.current_song[guild_id]['name']}")
-        elif self.current_song.get(guild_id) and ctx.voice_client and ctx.voice_client.is_paused():
-            await ctx.send(f"Currently paused: {self.current_song[guild_id]['name']}")
-        else:
-            await ctx.send("No music is currently playing.")
 
     @commands.Cog.listener()
     async def on_command_error(self, ctx, error):
