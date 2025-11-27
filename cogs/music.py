@@ -258,6 +258,77 @@ class Music(commands.Cog):
             self.is_playing[guild_id] = True
             await self.play_next(ctx)
 
+    @commands.command(name='skip', help='Skips the current song')
+    async def skip(self, ctx):
+        vc = ctx.voice_client
+        if not vc or not (vc.is_playing() or vc.is_paused()):
+            await ctx.send("No music is currently playing to skip.")
+            return
+        
+        vc.stop()
+        await ctx.send("Skipped the current song.")
+
+    @commands.command(name='stop', help='Stops playback and clears the queue')
+    async def stop(self, ctx):
+        guild_id = ctx.guild.id
+        vc = ctx.voice_client
+        if not vc:
+            await ctx.send("I am not in a voice channel.")
+            return
+
+        if guild_id in self.music_queue:
+            self.music_queue[guild_id].clear()
+        
+        self.is_playing[guild_id] = False
+        self.current_song[guild_id] = None
+
+        if vc.is_playing() or vc.is_paused():
+            vc.stop()
+        
+        message = self.now_playing_message.get(guild_id)
+        if message:
+            try:
+                await message.edit(content="Playback stopped.", view=None)
+            except discord.NotFound:
+                pass
+            self.now_playing_message[guild_id] = None
+
+        await ctx.send("Stopped playback and cleared the queue.")
+
+    @commands.command(name='pause', help='Pauses the current song')
+    async def pause(self, ctx):
+        vc = ctx.voice_client
+        if vc and vc.is_playing():
+            vc.pause()
+            await ctx.send("Playback paused.")
+            
+            message = self.now_playing_message.get(ctx.guild.id)
+            if message:
+                view = MusicControlView()
+                button = discord.utils.get(view.children, custom_id='pause_resume')
+                button.label = "Resume"
+                button.emoji = "▶️"
+                await message.edit(view=view)
+        else:
+            await ctx.send("No music is currently playing.")
+            
+    @commands.command(name='resume', help='Resumes the paused song')
+    async def resume(self, ctx):
+        vc = ctx.voice_client
+        if vc and vc.is_paused():
+            vc.resume()
+            await ctx.send("Playback resumed.")
+
+            message = self.now_playing_message.get(ctx.guild.id)
+            if message:
+                view = MusicControlView()
+                button = discord.utils.get(view.children, custom_id='pause_resume')
+                button.label = "Pause"
+                button.emoji = "⏸️"
+                await message.edit(view=view)
+        else:
+            await ctx.send("No music is currently paused.")
+
     @commands.Cog.listener()
     async def on_command_error(self, ctx, error):
         if isinstance(error, commands.MissingRequiredArgument):
