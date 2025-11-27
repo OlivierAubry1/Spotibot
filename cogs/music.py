@@ -82,9 +82,12 @@ class MusicControlView(discord.ui.View):
         if vc.is_playing() or vc.is_paused():
             vc.stop()
 
-        if music_cog.now_playing_message.get(guild_id):
+        message = music_cog.now_playing_message.get(guild_id)
+        if message:
             try:
-                await music_cog.now_playing_message[guild_id].edit(content="Playback stopped.", view=None)
+                if message.pinned:
+                    await message.unpin()
+                await message.edit(content="Playback stopped.", embed=None, view=None)
             except discord.NotFound:
                 pass
             music_cog.now_playing_message[guild_id] = None
@@ -118,6 +121,7 @@ class Music(commands.Cog):
         self.is_playing = {} # Guild ID -> boolean
         self.current_song = {} # Guild ID -> current song
         self.now_playing_message = {} # Guild ID -> message object
+        self.sent_pin_warning = {} # Guild ID -> boolean
         # Spotify API Setup - Client Credentials Flow (for public data like track search)
         self.sp = spotipy.Spotify(auth_manager=SpotifyClientCredentials(
             client_id=os.getenv("SPOTIPY_CLIENT_ID"),
@@ -220,6 +224,16 @@ class Music(commands.Cog):
         if not self.music_queue.get(guild_id):
             self.is_playing[guild_id] = False
             self.current_song[guild_id] = None
+            now_playing_msg = self.now_playing_message.get(guild_id)
+            if now_playing_msg:
+                try:
+                    if now_playing_msg.pinned:
+                        await now_playing_msg.unpin()
+                    await now_playing_msg.edit(content="Queue finished.", embed=None, view=None)
+                except discord.NotFound:
+                    pass # Message already gone
+                self.now_playing_message[guild_id] = None
+
             if ctx.voice_client and ctx.voice_client.is_connected():
                 await asyncio.sleep(60) # Wait a bit before disconnecting
                 if not self.is_playing.get(guild_id) and not self.music_queue.get(guild_id):
@@ -234,9 +248,6 @@ class Music(commands.Cog):
         if pause_resume_button:
             pause_resume_button.label = "Pause"
             pause_resume_button.emoji = "⏸️"
-        
-        # OLD: content = f"Now playing: {song['name']}"
-        # OLD: await ctx.channel.send(content, view=control_view)
         
         embed = discord.Embed(
             title="Now Playing",
@@ -254,13 +265,33 @@ class Music(commands.Cog):
         if song.get('requester'):
             embed.set_footer(text=f"Requested by {song['requester'].display_name}", icon_url=song['requester'].avatar.url)
 
-        if self.now_playing_message.get(guild_id):
+        now_playing_msg = self.now_playing_message.get(guild_id)
+        if now_playing_msg:
             try:
-                await self.now_playing_message[guild_id].edit(content=None, embed=embed, view=control_view)
+                await now_playing_msg.edit(content=None, embed=embed, view=control_view)
             except discord.NotFound:
-                self.now_playing_message[guild_id] = await ctx.channel.send(content=None, embed=embed, view=control_view)
-        else:
+                now_playing_msg = None # It was deleted, so we'll send a new one
+        
+        if not now_playing_msg:
             self.now_playing_message[guild_id] = await ctx.channel.send(content=None, embed=embed, view=control_view)
+
+        # Pinning logic
+        try:
+            current_message = self.now_playing_message.get(guild_id)
+            if current_message and not current_message.pinned:
+                # Unpin any previous "Now Playing" messages from this bot
+                pinned_messages = await ctx.channel.pins()
+                for msg in pinned_messages:
+                    if msg.author.id == self.bot.user.id and msg.embeds and msg.embeds[0].title == "Now Playing" and msg.id != current_message.id:
+                        await msg.unpin()
+                await current_message.pin()
+        except discord.Forbidden:
+            if not self.sent_pin_warning.get(guild_id):
+                await ctx.send("I need the 'Manage Messages' permission to pin the music player and keep it visible.")
+                self.sent_pin_warning[guild_id] = True
+        except Exception as e:
+            print(f"Error managing pinned messages: {e}")
+
 
         try:
             source = discord.FFmpegPCMAudio(song['url'], **FFMPEG_OPTIONS)
@@ -435,6 +466,26 @@ class Music(commands.Cog):
             self.now_playing_message[guild_id] = None
 
         await ctx.send("Stopped playback and cleared the queue.")
+
+    @commands.command(name='queue', help='Displays the current song queue')
+    async def queue(self, ctx):
+        guild_id = ctx.guild.id
+        
+        if not self.music_queue.get(guild_id) and not self.is_playing.get(guild_id):
+            await ctx.send("The queue is currently empty.")
+            return
+
+        queue_list = []
+        if self.is_playing.get(guild_id) and self.current_song.get(guild_id):
+            queue_list.append(f"Now Playing: {self.current_song[guild_id]['name']}")
+        
+        for i, song in enumerate(self.music_queue.get(guild_id, [])):
+            queue_list.append(f"{i+1}. {song['name']}")
+        
+        if queue_list:
+            await ctx.send("```\n" + "\n".join(queue_list) + "\n```")
+        else:
+            await ctx.send("The queue is empty.")
 
     @commands.command(name='pause', help='Pauses the current song')
     async def pause(self, ctx):
