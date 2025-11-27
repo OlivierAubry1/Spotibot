@@ -24,6 +24,7 @@ YDL_OPTIONS = {
     'outtmpl': '%(extractor)s-%(id)s-%(title)s.%(ext)s',
     'restrictfilenames': True,
     'buffersize': 1024 * 16, # 16KiB
+    'extractor_args': {'youtube': {'player_client': 'default'}}
 }
 
 FFMPEG_OPTIONS = {
@@ -37,6 +38,7 @@ class Music(commands.Cog):
         self.music_queue = {} # Guild ID -> list of songs
         self.is_playing = {} # Guild ID -> boolean
         self.current_song = {} # Guild ID -> current song
+        self.now_playing_message = {} # Guild ID -> message object
         # Spotify API Setup - Client Credentials Flow (for public data like track search)
         self.sp = spotipy.Spotify(auth_manager=SpotifyClientCredentials(
             client_id=os.getenv("SPOTIPY_CLIENT_ID"),
