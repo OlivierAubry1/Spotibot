@@ -85,8 +85,6 @@ class MusicControlView(discord.ui.View):
         message = music_cog.now_playing_message.get(guild_id)
         if message:
             try:
-                if message.pinned:
-                    await message.unpin()
                 await message.edit(content="Playback stopped.", embed=None, view=None)
             except discord.NotFound:
                 pass
@@ -121,7 +119,6 @@ class Music(commands.Cog):
         self.is_playing = {} # Guild ID -> boolean
         self.current_song = {} # Guild ID -> current song
         self.now_playing_message = {} # Guild ID -> message object
-        self.sent_pin_warning = {} # Guild ID -> boolean
         # Spotify API Setup - Client Credentials Flow (for public data like track search)
         self.sp = spotipy.Spotify(auth_manager=SpotifyClientCredentials(
             client_id=os.getenv("SPOTIPY_CLIENT_ID"),
@@ -218,37 +215,7 @@ class Music(commands.Cog):
 
         return songs, message
 
-    # Function to play the next song in the queue
-    async def play_next(self, ctx):
-        guild_id = ctx.guild.id
-        if not self.music_queue.get(guild_id):
-            self.is_playing[guild_id] = False
-            self.current_song[guild_id] = None
-            now_playing_msg = self.now_playing_message.get(guild_id)
-            if now_playing_msg:
-                try:
-                    if now_playing_msg.pinned:
-                        await now_playing_msg.unpin()
-                    await now_playing_msg.edit(content="Queue finished.", embed=None, view=None)
-                except discord.NotFound:
-                    pass # Message already gone
-                self.now_playing_message[guild_id] = None
-
-            if ctx.voice_client and ctx.voice_client.is_connected():
-                await asyncio.sleep(60) # Wait a bit before disconnecting
-                if not self.is_playing.get(guild_id) and not self.music_queue.get(guild_id):
-                    await ctx.voice_client.disconnect()
-            return
-
-        song = self.music_queue[guild_id].pop(0)
-        self.current_song[guild_id] = song # Set the current playing song
-
-        control_view = MusicControlView()
-        pause_resume_button = discord.utils.get(control_view.children, custom_id="pause_resume")
-        if pause_resume_button:
-            pause_resume_button.label = "Pause"
-            pause_resume_button.emoji = "⏸️"
-        
+    def _create_now_playing_embed_and_view(self, song, vc):
         embed = discord.Embed(
             title="Now Playing",
             description=f"[{song['name']}]({song['web_url']})" if song.get('web_url') else song['name'],
@@ -265,32 +232,48 @@ class Music(commands.Cog):
         if song.get('requester'):
             embed.set_footer(text=f"Requested by {song['requester'].display_name}", icon_url=song['requester'].avatar.url)
 
+        view = MusicControlView()
+        # Set button state correctly
+        if vc and vc.is_paused():
+            button = discord.utils.get(view.children, custom_id='pause_resume')
+            button.label = "Resume"
+            button.emoji = "▶️"
+        
+        return embed, view
+
+    # Function to play the next song in the queue
+    async def play_next(self, ctx):
+        guild_id = ctx.guild.id
+        if not self.music_queue.get(guild_id):
+            self.is_playing[guild_id] = False
+            self.current_song[guild_id] = None
+            now_playing_msg = self.now_playing_message.get(guild_id)
+            if now_playing_msg:
+                try:
+                    await now_playing_msg.edit(content="Queue finished.", embed=None, view=None)
+                except discord.NotFound:
+                    pass # Message already gone
+                self.now_playing_message[guild_id] = None
+
+            if ctx.voice_client and ctx.voice_client.is_connected():
+                await asyncio.sleep(60) # Wait a bit before disconnecting
+                if not self.is_playing.get(guild_id) and not self.music_queue.get(guild_id):
+                    await ctx.voice_client.disconnect()
+            return
+
+        song = self.music_queue[guild_id].pop(0)
+        self.current_song[guild_id] = song # Set the current playing song
+
+        embed, view = self._create_now_playing_embed_and_view(song, ctx.voice_client)
+
         now_playing_msg = self.now_playing_message.get(guild_id)
         if now_playing_msg:
             try:
-                await now_playing_msg.edit(content=None, embed=embed, view=control_view)
+                await now_playing_msg.edit(content=None, embed=embed, view=view)
             except discord.NotFound:
-                now_playing_msg = None # It was deleted, so we'll send a new one
-        
-        if not now_playing_msg:
-            self.now_playing_message[guild_id] = await ctx.channel.send(content=None, embed=embed, view=control_view)
-
-        # Pinning logic
-        try:
-            current_message = self.now_playing_message.get(guild_id)
-            if current_message and not current_message.pinned:
-                # Unpin any previous "Now Playing" messages from this bot
-                pinned_messages = await ctx.channel.pins()
-                for msg in pinned_messages:
-                    if msg.author.id == self.bot.user.id and msg.embeds and msg.embeds[0].title == "Now Playing" and msg.id != current_message.id:
-                        await msg.unpin()
-                await current_message.pin()
-        except discord.Forbidden:
-            if not self.sent_pin_warning.get(guild_id):
-                await ctx.send("I need the 'Manage Messages' permission to pin the music player and keep it visible.")
-                self.sent_pin_warning[guild_id] = True
-        except Exception as e:
-            print(f"Error managing pinned messages: {e}")
+                 self.now_playing_message[guild_id] = await ctx.channel.send(content=None, embed=embed, view=view)
+        else:
+            self.now_playing_message[guild_id] = await ctx.channel.send(content=None, embed=embed, view=view)
 
 
         try:
@@ -325,6 +308,25 @@ class Music(commands.Cog):
             await ctx.send("Be right back! Refreshing...")
             sys.exit()
             return
+
+    @commands.command(name='player', help='Brings the music player to the bottom of the chat.')
+    async def player(self, ctx):
+        guild_id = ctx.guild.id
+        
+        current_song = self.current_song.get(guild_id)
+        if not current_song or not ctx.voice_client:
+            await ctx.send("Nothing is currently playing.")
+            return
+            
+        old_message = self.now_playing_message.get(guild_id)
+        if old_message:
+            try:
+                await old_message.delete()
+            except (discord.Forbidden, discord.NotFound):
+                pass
+        
+        embed, view = self._create_now_playing_embed_and_view(current_song, ctx.voice_client)
+        self.now_playing_message[guild_id] = await ctx.send(embed=embed, view=view)
 
     async def handle_playlist(self, ctx, query):
         guild_id = ctx.guild.id
