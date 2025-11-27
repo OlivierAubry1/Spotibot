@@ -47,7 +47,12 @@ class Music(commands.Cog):
         with YoutubeDL(YDL_OPTIONS) as ydl:
             try:
                 info = ydl.extract_info(f"ytsearch:{query}", download=False)['entries'][0]
-                return info['url']
+                return {
+                    'url': info['url'],
+                    'web_url': info['webpage_url'],
+                    'thumbnail': info.get('thumbnail'),
+                    'duration': info.get('duration'),
+                }
             except Exception:
                 return None
 
@@ -57,7 +62,10 @@ class Music(commands.Cog):
                 info = ydl.extract_info(url, download=False)
                 return {
                     'name': info.get('title', 'Unknown Title'),
-                    'url': info.get('url'),
+                    'url': info['url'],
+                    'web_url': info['webpage_url'],
+                    'thumbnail': info.get('thumbnail'),
+                    'duration': info.get('duration'),
                 }
             except Exception:
                 return None
@@ -78,9 +86,15 @@ class Music(commands.Cog):
                         track_id = query.split('/')[-1].split('?')[0]
                         track = self.sp.track(track_id)
                         song_name = f"{track['artists'][0]['name']} - {track['name']}"
-                        yt_url = await loop.run_in_executor(None, lambda: self._search_youtube(song_name))
-                        if yt_url:
-                            songs.append({'name': song_name, 'url': yt_url})
+                        yt_info = await loop.run_in_executor(None, lambda: self._search_youtube(song_name))
+                        if yt_info:
+                            songs.append({
+                                'name': song_name,
+                                'url': yt_info['url'],
+                                'web_url': yt_info['web_url'],
+                                'thumbnail': yt_info['thumbnail'],
+                                'duration': yt_info['duration'],
+                            })
                         message = f"Added '{song_name}' to the queue."
                     except Exception as e:
                         print(f"Error processing spotify track url: {e}") # Log error
@@ -101,9 +115,15 @@ class Music(commands.Cog):
                     return None, f"Could not find any songs matching '{query}' on Spotify."
                 track = results['tracks']['items'][0]
                 song_name = f"{track['artists'][0]['name']} - {track['name']}"
-                yt_url = await loop.run_in_executor(None, lambda: self._search_youtube(song_name))
-                if yt_url:
-                    songs.append({'name': song_name, 'url': yt_url})
+                yt_info = await loop.run_in_executor(None, lambda: self._search_youtube(song_name))
+                if yt_info:
+                    songs.append({
+                        'name': song_name,
+                        'url': yt_info['url'],
+                        'web_url': yt_info['web_url'],
+                        'thumbnail': yt_info['thumbnail'],
+                        'duration': yt_info['duration'],
+                    })
                     message = f"Added '{song_name}' to the queue."
             except Exception as e:
                 print(f"Error searching spotify: {e}")
@@ -129,7 +149,33 @@ class Music(commands.Cog):
         song = self.music_queue[guild_id].pop(0)
         self.current_song[guild_id] = song # Set the current playing song
 
-        await ctx.channel.send(f"Now playing: {song['name']}")
+        
+        content = f"Now playing: {song['name']}"
+        # OLD: await ctx.channel.send(content, view=control_view)
+        
+        embed = discord.Embed(
+            title="Now Playing",
+            description=f"[{song['name']}]({song['web_url']})" if song.get('web_url') else song['name'],
+            color=discord.Color.blue()
+        )
+        if song.get('thumbnail'):
+            embed.set_thumbnail(url=song['thumbnail'])
+        
+        if song.get('duration'):
+            duration = song['duration']
+            minutes, seconds = divmod(duration, 60)
+            embed.add_field(name="Duration", value=f"{minutes:02d}:{seconds:02d}", inline=True)
+
+        if song.get('requester'):
+            embed.set_footer(text=f"Requested by {song['requester'].display_name}", icon_url=song['requester'].avatar.url)
+
+        if self.now_playing_message.get(guild_id):
+            try:
+                await self.now_playing_message[guild_id].edit(content=None, embed=embed, view=control_view)
+            except discord.NotFound:
+                self.now_playing_message[guild_id] = await ctx.channel.send(content=None, embed=embed, view=control_view)
+        else:
+            self.now_playing_message[guild_id] = await ctx.channel.send(content=None, embed=embed, view=control_view)
 
         try:
             source = discord.FFmpegPCMAudio(song['url'], **FFMPEG_OPTIONS)
@@ -192,10 +238,19 @@ class Music(commands.Cog):
 
                 song_name = f"{track['artists'][0]['name']} - {track['name']}"
                 
-                yt_url = await loop.run_in_executor(None, lambda: self._search_youtube(song_name))
+                yt_info = await loop.run_in_executor(None, lambda: self._search_youtube(song_name))
                 
-                if yt_url:
-                    song = {'name': song_name, 'url': yt_url, 'guild_id': guild_id, 'channel_id': ctx.channel.id}
+                if yt_info:
+                    song = {
+                        'name': song_name,
+                        'url': yt_info['url'],
+                        'web_url': yt_info['web_url'],
+                        'thumbnail': yt_info['thumbnail'],
+                        'duration': yt_info['duration'],
+                        'guild_id': guild_id,
+                        'channel_id': ctx.channel.id,
+                        'requester': ctx.author
+                    }
                     self.music_queue[guild_id].append(song)
                     processed_count += 1
                     
@@ -250,6 +305,7 @@ class Music(commands.Cog):
         for song in songs:
             song['guild_id'] = guild_id
             song['channel_id'] = ctx.channel.id
+            song['requester'] = ctx.author
             self.music_queue[guild_id].append(song)
         
         await ctx.send(message)
