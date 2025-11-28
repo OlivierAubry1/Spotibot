@@ -24,7 +24,7 @@ YDL_OPTIONS = {
     'outtmpl': '%(extractor)s-%(id)s-%(title)s.%(ext)s',
     'restrictfilenames': True,
     'buffersize': 1024 * 16, # 16KiB
-    'extractor_args': {'youtube': {'player_client': 'default'}}
+    'extractor_args': {'youtube': {'player_client': ['default']}},
 }
 
 FFMPEG_OPTIONS = {
