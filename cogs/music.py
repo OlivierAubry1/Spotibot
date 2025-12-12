@@ -3,6 +3,7 @@ import discord
 import asyncio
 from yt_dlp import YoutubeDL
 import functools
+import random
 import spotipy
 from spotipy.oauth2 import SpotifyClientCredentials
 import os
@@ -35,6 +36,16 @@ FFMPEG_OPTIONS = {
 class MusicControlView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
+    @discord.ui.button(label="Shuffle", style=discord.ButtonStyle.success, emoji="🔀", custom_id="shuffle")
+    async def shuffle(self, interaction: discord.Interaction, button: discord.ui.Button):
+        music_cog = interaction.client.get_cog('Music')
+        guild_id = interaction.guild_id
+        
+        if not music_cog.music_queue.get(guild_id):
+            return await interaction.response.send_message("The queue is empty.", ephemeral=True)
+
+        random.shuffle(music_cog.music_queue[guild_id])
+        await interaction.response.send_message("🔀 Queue shuffled!", ephemeral=True)
 
     @discord.ui.button(label="Pause", style=discord.ButtonStyle.secondary, emoji="⏸️", custom_id="pause_resume")
     async def pause_resume(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -308,6 +319,16 @@ class Music(commands.Cog):
             await ctx.send("Be right back! Refreshing...")
             sys.exit()
             return
+    @commands.command(name='shuffle', help='Shuffles the current queue')
+    async def shuffle(self, ctx):
+        guild_id = ctx.guild.id
+        
+        if not self.music_queue.get(guild_id):
+            await ctx.send("The queue is empty, nothing to shuffle.")
+            return
+
+        random.shuffle(self.music_queue[guild_id])
+        await ctx.send("🔀 Queue shuffled!")
 
     @commands.command(name='player', help='Brings the music player to the bottom of the chat.')
     async def player(self, ctx):
