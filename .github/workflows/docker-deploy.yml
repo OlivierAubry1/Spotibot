@@ -22,11 +22,16 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # NEW STEP: Convert the repository owner name to lowercase
+      - name: Set lowercase repository owner
+        run: |
+          echo "REPO_OWNER=${GITHUB_REPOSITORY_OWNER,,}" >> $GITHUB_ENV
+
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
           context: .
           push: true
           tags: |
-            ghcr.io/${{ github.repository_owner }}/spotibot:latest
-            ghcr.io/${{ github.repository_owner }}/spotibot:${{ github.sha }}
+            ghcr.io/${{ env.REPO_OWNER }}/spotibot:latest
+            ghcr.io/${{ env.REPO_OWNER }}/spotibot:${{ github.sha }}
