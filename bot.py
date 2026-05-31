@@ -16,11 +16,11 @@ intents.message_content = True  # Enable message content intent
 intents.voice_states = True     # Enable voice state intent for joining/leaving voice channels
 bot = commands.Bot(command_prefix='!', intents=intents)
 
-@bot.event
-async def on_ready():
-    print(f'Logged in as {bot.user} (ID: {bot.user.id})')
-    print('------')
-    await bot.load_extension("cogs.music")
+try:
+    bot.load_extension("cogs.music")
+except Exception as e:
+    print(f"Failed to load extension cogs.music: {e}")
+    raise
 
 # Run the bot
 if __name__ == "__main__":

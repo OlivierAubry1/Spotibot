@@ -1,0 +1,12 @@
+version: "3.9"
+
+services:
+  spotibot:
+    build: .
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - DISCORD_TOKEN
+      - SPOTIPY_CLIENT_ID
+      - SPOTIPY_CLIENT_SECRET
